@@ -3,11 +3,13 @@ from db import supabase
 from fastapi.responses import JSONResponse
 import time
 import hashlib
+import requests
 
 app = FastAPI(title="GuardRail Target API")
 REQUEST_COUNTS = {}
 
 LOG_DASHBOARD_REQUESTS = False  # 🔴 turn OFF DB logging for dashboard polling
+DEMO_BOT_MODE = True           # 🧪 demo-only bot attack simulation
 
 def log_event(ip, user_agent, fingerprint, status, threat_score):
     data = {
@@ -27,12 +29,12 @@ async def guard_middleware(request: Request, call_next):
     path = request.url.path
 
     # ❌ Don't guard/log dashboard & docs endpoints
-    if path in ["/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health"]:
-        response = await call_next(request)
-        return response
+    if path in ["/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health", "/bot-attack"]:
+        return await call_next(request)
 
     ip = request.client.host if request.client else "unknown"
     ua = request.headers.get("user-agent", "unknown")
+    ua_lower = ua.lower()
 
     fingerprint = hashlib.sha256(f"{ip}:{ua}".encode()).hexdigest()[:16]
 
@@ -45,17 +47,24 @@ async def guard_middleware(request: Request, call_next):
     threat_score = 10 + count * 5
     status = "allowed"
 
-    ua_lower = ua.lower()
+    # 🧪 Heuristic 0: Demo bot attack trigger
+    bot_flag = request.headers.get("x-bot-attack", "false").lower() == "true"
+    if DEMO_BOT_MODE and bot_flag:
+        threat_score = 99
+        status = "blocked"
 
+    # Heuristic 1: Bot-like User-Agent
     if "python" in ua_lower or "curl" in ua_lower or "bot" in ua_lower:
         threat_score = 95
         status = "blocked"
 
-    if path in ["/login", "/transfer"] and count > 5:
+    # Heuristic 2: Sensitive endpoint abuse
+    if path in ["/login", "/transfer"] and count > 10:
         threat_score = max(threat_score, 85)
         status = "blocked"
 
-    if count > 10:
+    # Heuristic 3: Flooding
+    if count > 15:
         threat_score = 90
         status = "blocked"
 
@@ -111,3 +120,28 @@ def get_blocked_count():
         .eq("status", "blocked") \
         .execute()
     return {"blocked_total": res.count}
+
+@app.post("/bot-attack")
+def bot_attack():
+    target_url = "http://127.0.0.1:8000/login"
+
+    headers = {
+        "User-Agent": "python-requests/2.32.5",
+        "x-bot-attack": "true"
+    }
+
+    results = []
+
+    for i in range(15):
+        try:
+            r = requests.post(target_url, headers=headers, timeout=2)
+            results.append(r.status_code)
+        except Exception as e:
+            results.append(str(e))
+
+    return {
+        "message": "Bot attack simulated",
+        "hits_sent": 15,
+        "results": results
+    }
+
