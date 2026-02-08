@@ -8,15 +8,15 @@ import requests
 app = FastAPI(title="GuardRail Target API")
 REQUEST_COUNTS = {}
 
-LOG_DASHBOARD_REQUESTS = False  # 🔴 turn OFF DB logging for dashboard polling
-DEMO_BOT_MODE = True           # 🧪 demo-only bot attack simulation
+LOG_DASHBOARD_REQUESTS = False
+DEMO_BOT_MODE = True
 
 def log_event(ip, user_agent, fingerprint, status, threat_score):
     data = {
         "ip": ip,
         "user_agent": user_agent,
         "fingerprint": fingerprint,
-        "status": status,  # lowercase always
+        "status": status,
         "threat_score": threat_score
     }
     try:
@@ -29,7 +29,7 @@ async def guard_middleware(request: Request, call_next):
     path = request.url.path
 
     # ❌ Don't guard/log dashboard & docs endpoints
-    if path in ["/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health", "/bot-attack"]:
+    if path in ["/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health"]:
         return await call_next(request)
 
     ip = request.client.host if request.client else "unknown"
@@ -47,24 +47,24 @@ async def guard_middleware(request: Request, call_next):
     threat_score = 10 + count * 5
     status = "allowed"
 
-    # 🧪 Heuristic 0: Demo bot attack trigger
-    bot_flag = request.headers.get("x-bot-attack", "false").lower() == "true"
-    if DEMO_BOT_MODE and bot_flag:
+    # 🧪 Demo bot attack trigger
+    if DEMO_BOT_MODE and request.headers.get("x-bot-attack", "").lower() == "true":
         threat_score = 99
         status = "blocked"
 
-    # Heuristic 1: Bot-like User-Agent
-    if "python" in ua_lower or "curl" in ua_lower or "bot" in ua_lower:
+    # 🤖 Obvious attack tools only (not legit clients)
+    BOT_KEYWORDS = ["curl", "sqlmap", "nikto", "scanner"]
+    if any(k in ua_lower for k in BOT_KEYWORDS):
         threat_score = 95
         status = "blocked"
 
-    # Heuristic 2: Sensitive endpoint abuse
-    if path in ["/login", "/transfer"] and count > 10:
+    # 🔐 Sensitive endpoint abuse
+    if path in ["/login", "/transfer"] and count > 5:
         threat_score = max(threat_score, 85)
         status = "blocked"
 
-    # Heuristic 3: Flooding
-    if count > 15:
+    # 🌊 Flooding
+    if count > 12:
         threat_score = 90
         status = "blocked"
 
@@ -132,7 +132,7 @@ def bot_attack():
 
     results = []
 
-    for i in range(15):
+    for _ in range(15):
         try:
             r = requests.post(target_url, headers=headers, timeout=2)
             results.append(r.status_code)
@@ -144,4 +144,3 @@ def bot_attack():
         "hits_sent": 15,
         "results": results
     }
-
