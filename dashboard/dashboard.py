@@ -3,9 +3,9 @@ import pandas as pd
 import time
 import requests
 
-API_URL = "http://127.0.0.1:8000/logs"
-COUNT_URL = "http://127.0.0.1:8000/logs/count"
-BLOCKED_COUNT_URL = "http://127.0.0.1:8000/logs/blocked/count"
+API_URL = "https://guardrail-twi2.onrender.com/logs"
+COUNT_URL = "https://guardrail-twi2.onrender.com/logs/count"
+BLOCKED_COUNT_URL = "https://guardrail-twi2.onrender.com/logs/blocked/count"
 REFRESH_SECONDS = 1
 
 pd.set_option("display.max_colwidth", 30)
