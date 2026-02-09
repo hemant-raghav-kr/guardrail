@@ -25,6 +25,18 @@ st.sidebar.markdown("**Detection Type:** Behavioral Fingerprinting")
 st.sidebar.markdown("**Protection:** Active")
 st.sidebar.markdown("**Mode:** API")
 
+st.sidebar.divider()
+st.sidebar.subheader("🗑️ Admin Controls")
+
+if st.sidebar.button("Delete all logs 🚨"):
+    try:
+        resp = requests.delete("https://guardrail-twi2.onrender.com/logs", timeout=5)
+        st.sidebar.success("Logs deleted!")
+        time.sleep(1)
+        st.experimental_rerun()
+    except Exception as e:
+        st.sidebar.error(f"Delete failed: {e}")
+
 col1, col2, col3 = st.columns(3)
 total_ph = col1.empty()
 blocked_ph = col2.empty()

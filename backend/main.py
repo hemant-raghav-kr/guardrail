@@ -76,14 +76,6 @@ async def guard_middleware(request: Request, call_next):
 
     return await call_next(request)
 
-@app.get("/")
-def root():
-    return {"status": "API running"}
-
-@app.get("/health")
-def health():
-    return {"api": "ok", "db": "connected"}
-
 @app.post("/log-test")
 async def log_test(request: Request):
     ip = request.client.host if request.client else "unknown"
@@ -98,6 +90,34 @@ def login():
 @app.post("/transfer")
 def transfer():
     return {"status": "transfer ok"}
+
+@app.post("/bot-attack")
+def bot_attack():
+    target_url = "https://guardrail-twi2.onrender.com/login"
+
+    headers = {
+        "User-Agent": "python-requests/2.32.5",
+        "x-bot-attack": "true"
+    }
+
+    results = []
+
+    for _ in range(15):
+        try:
+            r = requests.post(target_url, headers=headers, timeout=2)
+            results.append(r.status_code)
+        except Exception as e:
+            results.append(str(e))
+
+    return {
+        "message": "Bot attack simulated",
+        "hits_sent": 15,
+        "results": results
+    }
+
+@app.get("/health")
+def health():
+    return {"api": "ok", "db": "connected"}
 
 @app.get("/home")
 def home():
@@ -121,26 +141,10 @@ def get_blocked_count():
         .execute()
     return {"blocked_total": res.count}
 
-@app.post("/bot-attack")
-def bot_attack():
-    target_url = "http://127.0.0.1:8000/login"
-
-    headers = {
-        "User-Agent": "python-requests/2.32.5",
-        "x-bot-attack": "true"
-    }
-
-    results = []
-
-    for _ in range(15):
-        try:
-            r = requests.post(target_url, headers=headers, timeout=2)
-            results.append(r.status_code)
-        except Exception as e:
-            results.append(str(e))
-
+@app.delete("/logs")
+def delete_logs():
+    res = supabase.table("request_logs").delete().neq("id", 0).execute()
     return {
-        "message": "Bot attack simulated",
-        "hits_sent": 15,
-        "results": results
+        "message": "All logs deleted",
+        "deleted_count": len(res.data) if res.data else 0
     }
