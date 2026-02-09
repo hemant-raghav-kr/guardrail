@@ -33,7 +33,7 @@ if st.sidebar.button("Delete all logs 🚨"):
         resp = requests.delete("https://guardrail-twi2.onrender.com/logs", timeout=5)
         st.sidebar.success("Logs deleted!")
         time.sleep(1)
-        st.experimental_rerun()
+        st.rerun()
     except Exception as e:
         st.sidebar.error(f"Delete failed: {e}")
 

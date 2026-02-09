@@ -11,6 +11,8 @@ REQUEST_COUNTS = {}
 LOG_DASHBOARD_REQUESTS = False
 DEMO_BOT_MODE = True
 
+# ================= HELPERS =================
+
 def log_event(ip, user_agent, fingerprint, status, threat_score):
     data = {
         "ip": ip,
@@ -24,12 +26,13 @@ def log_event(ip, user_agent, fingerprint, status, threat_score):
     except Exception as e:
         print("DB insert failed:", e)
 
+# ================= MIDDLEWARE =================
+
 @app.middleware("http")
 async def guard_middleware(request: Request, call_next):
     path = request.url.path
 
-    # ❌ Don't guard/log dashboard & docs endpoints
-    if path in ["/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health"]:
+    if path in ["/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health", "/bot-attack"]:
         return await call_next(request)
 
     ip = request.client.host if request.client else "unknown"
@@ -47,25 +50,21 @@ async def guard_middleware(request: Request, call_next):
     threat_score = 10 + count * 5
     status = "allowed"
 
-    # 🧪 Demo bot attack trigger
-    if DEMO_BOT_MODE and request.headers.get("x-bot-attack", "").lower() == "true":
+    bot_flag = request.headers.get("x-bot-attack", "false").lower() == "true"
+    if DEMO_BOT_MODE and bot_flag:
         threat_score = 99
         status = "blocked"
 
-    # 🤖 Obvious attack tools only (not legit clients)
-    BOT_KEYWORDS = ["curl", "sqlmap", "nikto", "scanner"]
-    if any(k in ua_lower for k in BOT_KEYWORDS):
+    if ("python" in ua_lower or "curl" in ua_lower) and not ua_lower.startswith("mozilla"):
         threat_score = 95
         status = "blocked"
 
-    # 🔐 Sensitive endpoint abuse
-    if path in ["/login", "/transfer"] and count > 5:
-        threat_score = max(threat_score, 85)
+    if path in ["/login", "/transfer"] and count > 10:
+        threat_score = 90
         status = "blocked"
 
-    # 🌊 Flooding
-    if count > 12:
-        threat_score = 90
+    if count > 15:
+        threat_score = 95
         status = "blocked"
 
     log_event(ip, ua, fingerprint, status, threat_score)
@@ -76,11 +75,13 @@ async def guard_middleware(request: Request, call_next):
 
     return await call_next(request)
 
+# ================= POST ROUTES =================
+
 @app.post("/log-test")
 async def log_test(request: Request):
     ip = request.client.host if request.client else "unknown"
-    user_agent = request.headers.get("user-agent")
-    log_event(ip, user_agent, "test_fp", "allowed", 5)
+    ua = request.headers.get("user-agent")
+    log_event(ip, ua, "test_fp", "allowed", 5)
     return {"message": "Logged to Supabase"}
 
 @app.post("/login")
@@ -101,7 +102,6 @@ def bot_attack():
     }
 
     results = []
-
     for _ in range(15):
         try:
             r = requests.post(target_url, headers=headers, timeout=2)
@@ -114,6 +114,22 @@ def bot_attack():
         "hits_sent": 15,
         "results": results
     }
+
+# ================= DELETE ROUTES =================
+
+@app.delete("/logs")
+def delete_logs():
+    res = supabase.table("request_logs").delete().gt("id", 0).execute()
+    return {
+        "message": "All logs deleted",
+        "deleted_count": len(res.data) if res.data else 0
+    }
+
+# ================= GET ROUTES =================
+
+@app.get("/")
+def root():
+    return {"status": "API running"}
 
 @app.get("/health")
 def health():
@@ -135,16 +151,5 @@ def get_log_count():
 
 @app.get("/logs/blocked/count")
 def get_blocked_count():
-    res = supabase.table("request_logs") \
-        .select("id", count="exact") \
-        .eq("status", "blocked") \
-        .execute()
+    res = supabase.table("request_logs").select("id", count="exact").eq("status", "blocked").execute()
     return {"blocked_total": res.count}
-
-@app.delete("/logs")
-def delete_logs():
-    res = supabase.table("request_logs").delete().neq("id", 0).execute()
-    return {
-        "message": "All logs deleted",
-        "deleted_count": len(res.data) if res.data else 0
-    }
