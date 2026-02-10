@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from streamlit_extras.app_timer import st_autorefresh
+import time
 
 API_URL = "https://guardrail-twi2.onrender.com/logs"
 COUNT_URL = "https://guardrail-twi2.onrender.com/logs/count"
@@ -14,8 +14,9 @@ pd.set_option("display.max_colwidth", 30)
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
-# 🔁 Auto refresh (Streamlit Cloud safe)
-st_autorefresh(interval=REFRESH_SECONDS * 1000, key="refresh")
+# 🔁 Auto refresh (native, cloud-safe)
+time.sleep(REFRESH_SECONDS)
+st.experimental_rerun()
 
 # ================= HEADER =================
 st.markdown("""
@@ -107,7 +108,7 @@ except:
     blocked_requests = 0
 
 recent_total = len(df)
-recent_blocked = len(df[df["status"] == "BLOCKED"])
+recent_blocked = len(df[df["status"] == "BLOCKED")]
 
 # ================= METRICS UPDATE =================
 total_ph.metric("📥 Total Requests (Lifetime)", total_requests)
