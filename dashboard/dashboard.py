@@ -98,7 +98,7 @@ col2.metric(
     delta=f"{round((recent_blocked/max(recent_total,1))*100,1)}% in last {recent_total}"
 )
 
-threat = "HIGH 🔴 : Maa Ka Bhosda AAAAAAG 🔥🔥🔥" if recent_blocked >= 6 else "MEDIUM 🟠 : Elevated risk" if recent_blocked >= 2 else "LOW 🟢 : Normal traffic"
+threat = "HIGH 🔴 : Critical threat detected!" if recent_blocked >= 6 else "MEDIUM 🟠 : Elevated risk" if recent_blocked >= 2 else "LOW 🟢 : Normal traffic"
 col3.metric("Threat Level", threat)
 
 # ================= GRAPH =================
