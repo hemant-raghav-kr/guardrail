@@ -88,7 +88,7 @@ recent_total = len(df)
 recent_blocked = len(df[df["status"] == "BLOCKED"]) if not df.empty else 0
 
 # ================= METRICS =================
-col1, col2, col3 = st.columns([1, 1, 1.5])  # make 3rd column wider
+col1, col2, col3 = st.columns([1, 1, 3])  # make 3rd column wider
 
 col1.metric("📥 Total Requests (Lifetime)", total_requests)
 
