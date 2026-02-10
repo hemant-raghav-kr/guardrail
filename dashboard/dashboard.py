@@ -99,7 +99,7 @@ col2.metric(
     delta=f"{round(percentage, 1)}% in last {recent_total}"
 )
 
-threat = "LOW 🟢: You are safe." if recent_blocked < 2 else "MEDIUM 🟠: You are under moderate threat." if recent_blocked < 6 else "HIGH 🔴: Chudh gye beta."
+threat = "LOW 🟢: You are safe." if recent_blocked < 2 else "MEDIUM 🟠: You are under moderate threat." if recent_blocked < 6 else "HIGH 🔴: Critical threat detected!"
 col3.metric("Threat Level", threat)
 
 # ================= GRAPH =================
