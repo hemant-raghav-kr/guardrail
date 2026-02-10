@@ -88,18 +88,17 @@ recent_total = len(df)
 recent_blocked = len(df[df["status"] == "BLOCKED"]) if not df.empty else 0
 
 # ================= METRICS =================
-col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns([1, 1, 1.5])  # make 3rd column wider
+
 col1.metric("📥 Total Requests (Lifetime)", total_requests)
 
-# Avoid divide by zero
-percentage = (recent_blocked / recent_total * 100) if recent_total > 0 else 0
 col2.metric(
     "🚫 Blocked Requests (Lifetime)",
     blocked_requests,
-    delta=f"{round(percentage, 1)}% in last {recent_total}"
+    delta=f"{round((recent_blocked/max(recent_total,1))*100,1)}% in last {recent_total}"
 )
 
-threat = "LOW 🟢: You are safe." if recent_blocked < 2 else "MEDIUM 🟠: You are under moderate threat." if recent_blocked < 6 else "HIGH 🔴: Critical threat detected!"
+threat = "HIGH 🔴 : Maa Ka Bhosda AAAAAAG 🔥🔥🔥" if recent_blocked >= 6 else "MEDIUM 🟠 : Elevated risk" if recent_blocked >= 2 else "LOW 🟢 : Normal traffic"
 col3.metric("Threat Level", threat)
 
 # ================= GRAPH =================
