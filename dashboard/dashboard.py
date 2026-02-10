@@ -1,19 +1,23 @@
 import streamlit as st
 import pandas as pd
 import requests
+from streamlit_extras.app_timer import st_autorefresh
 
 API_URL = "https://guardrail-twi2.onrender.com/logs"
 COUNT_URL = "https://guardrail-twi2.onrender.com/logs/count"
 BLOCKED_COUNT_URL = "https://guardrail-twi2.onrender.com/logs/blocked/count"
+DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
+
 REFRESH_SECONDS = 2
 
 pd.set_option("display.max_colwidth", 30)
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
-# ✅ Smooth auto refresh (no flicker)
-st.autorefresh(interval=REFRESH_SECONDS * 1000, key="refresh")
+# 🔁 Auto refresh (Streamlit Cloud safe)
+st_autorefresh(interval=REFRESH_SECONDS * 1000, key="refresh")
 
+# ================= HEADER =================
 st.markdown("""
 # 🛡️ Secure API Abuse & Rate-Limit Bypass Detection  
 **Real-time behavioral security monitoring dashboard**
@@ -39,16 +43,16 @@ if st.sidebar.button("Delete all logs 🚨"):
     else:
         try:
             r = requests.delete(
-                "https://guardrail-twi2.onrender.com/logs",
+                DELETE_URL,
                 headers={"x-admin-pin": pin},
                 timeout=5
             )
             if r.status_code == 200:
-                st.success("Logs deleted!")
+                st.sidebar.success("Logs deleted!")
             else:
-                st.error("Invalid PIN or delete failed")
+                st.sidebar.error("Invalid PIN or delete failed")
         except Exception as e:
-            st.error(f"Delete failed: {e}")
+            st.sidebar.error(f"Delete failed: {e}")
 
 # ================= METRICS =================
 col1, col2, col3 = st.columns(3)
@@ -62,6 +66,7 @@ chart_ph = st.empty()
 st.subheader("🚨 Recently Blocked Clients")
 table_ph = st.empty()
 
+# ================= STYLES =================
 def threat_style(val):
     try:
         val = int(val)
@@ -78,7 +83,7 @@ def decision_style(val):
 
 # ================= DATA FETCH =================
 try:
-    df = pd.DataFrame(requests.get(API_URL, timeout=3).json())
+    df = pd.DataFrame(requests.get(API_URL, timeout=5).json())
 except Exception as e:
     st.error(f"API error: {e}")
     st.stop()
@@ -91,13 +96,22 @@ df["status"] = df["status"].astype(str).str.upper()
 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 df = df.sort_values("timestamp", ascending=False)
 
-total_requests = requests.get(COUNT_URL).json().get("total", 0)
-blocked_requests = requests.get(BLOCKED_COUNT_URL).json().get("blocked_total", 0)
+try:
+    total_requests = requests.get(COUNT_URL, timeout=5).json().get("total", 0)
+except:
+    total_requests = 0
+
+try:
+    blocked_requests = requests.get(BLOCKED_COUNT_URL, timeout=5).json().get("blocked_total", 0)
+except:
+    blocked_requests = 0
 
 recent_total = len(df)
 recent_blocked = len(df[df["status"] == "BLOCKED"])
 
+# ================= METRICS UPDATE =================
 total_ph.metric("📥 Total Requests (Lifetime)", total_requests)
+
 blocked_ph.metric(
     "🚫 Blocked Requests (Lifetime)",
     blocked_requests,
@@ -107,9 +121,11 @@ blocked_ph.metric(
 threat = "LOW 🟢" if recent_blocked < 2 else "MEDIUM 🟠" if recent_blocked < 6 else "HIGH 🔴"
 threat_ph.metric("Threat Level", threat)
 
+# ================= GRAPH =================
 rps_df = df.set_index("timestamp").resample("1S").size()
 chart_ph.line_chart(rps_df.tail(30))
 
+# ================= BLOCKED TABLE =================
 blocked_df = df[df["status"] == "BLOCKED"].head(10).rename(columns={
     "ip": "Client IP",
     "status": "Decision",
