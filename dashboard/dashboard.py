@@ -14,10 +14,6 @@ pd.set_option("display.max_colwidth", 30)
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
-# 🔁 Auto refresh (native, cloud-safe)
-time.sleep(REFRESH_SECONDS)
-st.experimental_rerun()
-
 # ================= HEADER =================
 st.markdown("""
 # 🛡️ Secure API Abuse & Rate-Limit Bypass Detection  
@@ -50,6 +46,7 @@ if st.sidebar.button("Delete all logs 🚨"):
             )
             if r.status_code == 200:
                 st.sidebar.success("Logs deleted!")
+                st.session_state["force_rerun"] = True
             else:
                 st.sidebar.error("Invalid PIN or delete failed")
         except Exception as e:
@@ -108,7 +105,7 @@ except:
     blocked_requests = 0
 
 recent_total = len(df)
-recent_blocked = len(df[df["status"] == "BLOCKED")]
+recent_blocked = len(df[df["status"] == "BLOCKED"])
 
 # ================= METRICS UPDATE =================
 total_ph.metric("📥 Total Requests (Lifetime)", total_requests)
@@ -138,3 +135,11 @@ table_ph.dataframe(
         .applymap(decision_style, subset=["Decision"])
         .applymap(threat_style, subset=["Threat Score"])
 )
+
+# ================= AUTO REFRESH =================
+if "last_refresh" not in st.session_state:
+    st.session_state["last_refresh"] = time.time()
+
+if time.time() - st.session_state["last_refresh"] > REFRESH_SECONDS:
+    st.session_state["last_refresh"] = time.time()
+    st.rerun()
