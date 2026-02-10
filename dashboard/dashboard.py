@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-from streamlit.runtime.scriptrunner import add_script_run_ctx
-from threading import Thread
 import time
 
 API_URL = "https://guardrail-twi2.onrender.com/logs"
@@ -13,20 +11,15 @@ DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
 REFRESH_SECONDS = 2
 
 pd.set_option("display.max_colwidth", 30)
-
 st.set_page_config(page_title="Guardrail", layout="wide")
 
-# ================= AUTO REFRESH THREAD =================
-def refresher():
-    while True:
-        time.sleep(REFRESH_SECONDS)
-        st.session_state["refresh"] = time.time()
+# ================= AUTO REFRESH =================
+now = time.time()
+last = st.session_state.get("last_refresh", 0)
 
-if "refresh_thread" not in st.session_state:
-    st.session_state.refresh_thread = True
-    t = Thread(target=refresher, daemon=True)
-    add_script_run_ctx(t)
-    t.start()
+if now - last > REFRESH_SECONDS:
+    st.session_state["last_refresh"] = now
+    st.rerun()
 
 # ================= HEADER =================
 st.markdown("""
@@ -50,11 +43,7 @@ pin = st.sidebar.text_input("Enter Admin PIN", type="password")
 
 if st.sidebar.button("Delete all logs 🚨"):
     try:
-        r = requests.delete(
-            DELETE_URL,
-            headers={"x-admin-pin": pin},
-            timeout=5
-        )
+        r = requests.delete(DELETE_URL, headers={"x-admin-pin": pin}, timeout=5)
         if r.status_code == 200:
             st.sidebar.success("Logs deleted!")
         else:
