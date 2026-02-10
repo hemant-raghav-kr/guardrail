@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 API_URL = "https://guardrail-twi2.onrender.com/logs"
 COUNT_URL = "https://guardrail-twi2.onrender.com/logs/count"
@@ -11,15 +10,11 @@ DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
 
 REFRESH_SECONDS = 2
 
-pd.set_option("display.max_colwidth", 30)
-
-st.set_page_config(page_title="Guardrail", layout="wide")
-
-# Auto refresh without blocking UI (less flicker)
+# ✅ stable auto-refresh loop
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
 
-if time.time() - st.session_state.last_refresh > REFRESH_SECONDS:
+if time.time() - st.session_state.last_refresh >= REFRESH_SECONDS:
     st.session_state.last_refresh = time.time()
     st.experimental_rerun()
 
