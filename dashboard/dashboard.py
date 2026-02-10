@@ -46,7 +46,6 @@ if st.sidebar.button("Delete all logs 🚨"):
             )
             if r.status_code == 200:
                 st.sidebar.success("Logs deleted!")
-                st.session_state["force_rerun"] = True
             else:
                 st.sidebar.error("Invalid PIN or delete failed")
         except Exception as e:
@@ -136,10 +135,6 @@ table_ph.dataframe(
         .applymap(threat_style, subset=["Threat Score"])
 )
 
-# ================= AUTO REFRESH =================
-if "last_refresh" not in st.session_state:
-    st.session_state["last_refresh"] = time.time()
-
-if time.time() - st.session_state["last_refresh"] > REFRESH_SECONDS:
-    st.session_state["last_refresh"] = time.time()
-    st.rerun()
+# ================= AUTO REFRESH (LAST LINE ONLY) =================
+time.sleep(REFRESH_SECONDS)
+st.rerun()
