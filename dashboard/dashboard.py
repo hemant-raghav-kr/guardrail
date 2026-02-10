@@ -10,7 +10,11 @@ DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
 
 REFRESH_SECONDS = 2
 
-# ✅ stable auto-refresh loop
+pd.set_option("display.max_colwidth", 30)
+
+st.set_page_config(page_title="Guardrail", layout="wide")
+
+# ================= AUTO REFRESH (Cloud-safe) =================
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
 
@@ -50,6 +54,7 @@ if st.sidebar.button("Delete all logs 🚨"):
             )
             if r.status_code == 200:
                 st.sidebar.success("Logs deleted!")
+                st.session_state.last_refresh = 0  # force refresh
             else:
                 st.sidebar.error("Invalid PIN or delete failed")
         except Exception as e:
