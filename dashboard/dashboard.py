@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import requests
+from streamlit.runtime.scriptrunner import add_script_run_ctx
+from threading import Thread
 import time
 
 API_URL = "https://guardrail-twi2.onrender.com/logs"
@@ -14,14 +16,17 @@ pd.set_option("display.max_colwidth", 30)
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
-# ================= AUTO REFRESH (Streamlit Cloud safe) =================
-st_autorefresh = st.empty()
-if "last_refresh" not in st.session_state:
-    st.session_state.last_refresh = time.time()
+# ================= AUTO REFRESH THREAD =================
+def refresher():
+    while True:
+        time.sleep(REFRESH_SECONDS)
+        st.session_state["refresh"] = time.time()
 
-if time.time() - st.session_state.last_refresh > REFRESH_SECONDS:
-    st.session_state.last_refresh = time.time()
-    st.rerun()
+if "refresh_thread" not in st.session_state:
+    st.session_state.refresh_thread = True
+    t = Thread(target=refresher, daemon=True)
+    add_script_run_ctx(t)
+    t.start()
 
 # ================= HEADER =================
 st.markdown("""
@@ -44,22 +49,18 @@ st.sidebar.subheader("🗑️ Admin Controls")
 pin = st.sidebar.text_input("Enter Admin PIN", type="password")
 
 if st.sidebar.button("Delete all logs 🚨"):
-    if not pin:
-        st.sidebar.error("Enter PIN first")
-    else:
-        try:
-            r = requests.delete(
-                DELETE_URL,
-                headers={"x-admin-pin": pin},
-                timeout=5
-            )
-            if r.status_code == 200:
-                st.sidebar.success("Logs deleted!")
-                st.session_state.last_refresh = 0
-            else:
-                st.sidebar.error("Invalid PIN or delete failed")
-        except Exception as e:
-            st.sidebar.error(f"Delete failed: {e}")
+    try:
+        r = requests.delete(
+            DELETE_URL,
+            headers={"x-admin-pin": pin},
+            timeout=5
+        )
+        if r.status_code == 200:
+            st.sidebar.success("Logs deleted!")
+        else:
+            st.sidebar.error("Invalid PIN or delete failed")
+    except Exception as e:
+        st.sidebar.error(f"Delete failed: {e}")
 
 # ================= METRICS =================
 col1, col2, col3 = st.columns(3)
@@ -103,22 +104,14 @@ df["status"] = df["status"].astype(str).str.upper()
 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 df = df.sort_values("timestamp", ascending=False)
 
-try:
-    total_requests = requests.get(COUNT_URL, timeout=5).json().get("total", 0)
-except:
-    total_requests = 0
-
-try:
-    blocked_requests = requests.get(BLOCKED_COUNT_URL, timeout=5).json().get("blocked_total", 0)
-except:
-    blocked_requests = 0
+total_requests = requests.get(COUNT_URL, timeout=5).json().get("total", 0)
+blocked_requests = requests.get(BLOCKED_COUNT_URL, timeout=5).json().get("blocked_total", 0)
 
 recent_total = len(df)
 recent_blocked = len(df[df["status"] == "BLOCKED"])
 
-# ================= METRICS UPDATE =================
+# ================= METRICS =================
 total_ph.metric("📥 Total Requests (Lifetime)", total_requests)
-
 blocked_ph.metric(
     "🚫 Blocked Requests (Lifetime)",
     blocked_requests,
