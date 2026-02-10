@@ -14,13 +14,14 @@ pd.set_option("display.max_colwidth", 30)
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
-# ================= AUTO REFRESH (Cloud-safe) =================
+# ================= AUTO REFRESH (Streamlit Cloud safe) =================
+st_autorefresh = st.empty()
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
 
-if time.time() - st.session_state.last_refresh >= REFRESH_SECONDS:
+if time.time() - st.session_state.last_refresh > REFRESH_SECONDS:
     st.session_state.last_refresh = time.time()
-    st.experimental_rerun()
+    st.rerun()
 
 # ================= HEADER =================
 st.markdown("""
@@ -54,7 +55,7 @@ if st.sidebar.button("Delete all logs 🚨"):
             )
             if r.status_code == 200:
                 st.sidebar.success("Logs deleted!")
-                st.session_state.last_refresh = 0  # force refresh
+                st.session_state.last_refresh = 0
             else:
                 st.sidebar.error("Invalid PIN or delete failed")
         except Exception as e:
