@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import time
 import requests
 
 API_URL = "https://guardrail-twi2.onrender.com/logs"
@@ -10,7 +9,10 @@ REFRESH_SECONDS = 2
 
 pd.set_option("display.max_colwidth", 30)
 
-st.set_page_config(page_title="Secure API Abuse Detection", layout="wide")
+st.set_page_config(page_title="Guardrail", layout="wide")
+
+# ✅ Smooth auto refresh (no flicker)
+st.autorefresh(interval=REFRESH_SECONDS * 1000, key="refresh")
 
 st.markdown("""
 # 🛡️ Secure API Abuse & Rate-Limit Bypass Detection  
@@ -43,7 +45,6 @@ if st.sidebar.button("Delete all logs 🚨"):
             )
             if r.status_code == 200:
                 st.success("Logs deleted!")
-                st.rerun()
             else:
                 st.error("Invalid PIN or delete failed")
         except Exception as e:
@@ -117,9 +118,6 @@ blocked_df = df[df["status"] == "BLOCKED"].head(10).rename(columns={
 
 table_ph.dataframe(
     blocked_df.style
-    .applymap(decision_style, subset=["Decision"])
-    .applymap(threat_style, subset=["Threat Score"])
+        .applymap(decision_style, subset=["Decision"])
+        .applymap(threat_style, subset=["Threat Score"])
 )
-
-time.sleep(REFRESH_SECONDS)
-st.rerun()
