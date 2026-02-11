@@ -9,7 +9,7 @@ COUNT_URL = "https://guardrail-twi2.onrender.com/logs/count"
 BLOCKED_COUNT_URL = "https://guardrail-twi2.onrender.com/logs/blocked/count"
 DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
 
-# Increased to 5s so Admin has time to type PIN without refresh interrupting
+# Refresh every 5 seconds to prevent UI glitches while typing
 REFRESH_SECONDS = 5 
 
 st.set_page_config(page_title="Guardrail", layout="wide")
@@ -34,24 +34,29 @@ st.sidebar.subheader("🗑️ Admin Controls")
 # Input for PIN
 pin = st.sidebar.text_input("Enter Admin PIN", type="password")
 
-# Delete Logic
+# --- CORRECTED DELETE LOGIC ---
 if st.sidebar.button("Delete all logs 🚨"):
     if not pin:
         st.sidebar.error("Enter PIN first")
     else:
+        success = False
         try:
             r = requests.delete(DELETE_URL, headers={"x-admin-pin": pin}, timeout=5)
             if r.status_code == 200:
-                st.sidebar.success("Logs deleted!")
-                time.sleep(1) # Give user time to read message
-                st.rerun()
+                success = True
+                # Use st.toast for a temporary popup that fades automatically
+                st.toast("Logs deleted successfully!", icon="✅")
             else:
                 st.sidebar.error("Invalid PIN or delete failed")
         except Exception as e:
             st.sidebar.error(f"Delete failed: {e}")
+        
+        # Rerun MUST happen outside the try/except block
+        if success:
+            time.sleep(1) 
+            st.rerun()
 
 # ================= SAFE DATA FETCH =================
-# Initialize default empty dataframe to prevent crashes
 df = pd.DataFrame(columns=["status", "timestamp", "ip", "threat_score"])
 
 try:
@@ -63,9 +68,8 @@ try:
 except Exception as e:
     st.error(f"API Connection Error: {e}")
 
-# Process Data if exists
+# Process Data
 if not df.empty:
-    # Ensure columns exist
     for col in ["status", "timestamp", "ip", "threat_score"]:
         if col not in df.columns:
             df[col] = None
@@ -89,7 +93,7 @@ recent_total = len(df)
 recent_blocked = len(df[df["status"] == "BLOCKED"]) if not df.empty else 0
 
 # ================= METRICS =================
-col1, col2, col3 = st.columns([1, 1, 3])  # make 3rd column wider
+col1, col2, col3 = st.columns([1, 1, 3])
 
 col1.metric("📥 Total Requests (Lifetime)", total_requests)
 
@@ -139,14 +143,13 @@ if not df.empty:
     })
 
     if not blocked_df.empty:
-        # Determine valid map method (Pandas 2.1.0+ uses map, older uses applymap)
+        # Safe map method for all Pandas versions
         styler = blocked_df.style
         map_method = getattr(styler, "map", styler.applymap)
         
         st.dataframe(
             map_method(decision_style, subset=["Decision"])
-            .map(threat_style, subset=["Threat Score"]) 
-            # Note: If map fails on second call in old pandas, revert to applymap manually
+            .map(threat_style, subset=["Threat Score"])
         )
     else:
         st.caption("No blocked requests in current logs.")
