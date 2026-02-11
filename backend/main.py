@@ -2,37 +2,46 @@ from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from db import supabase
 import time, hashlib, os
-import httpx  # You must install this: pip install httpx
+import httpx
 
 app = FastAPI(title="GuardRail Target API")
 
-# Store request counts in memory (In production, use Redis)
 REQUEST_COUNTS = {}
+LONG_TERM_COUNTS = {}
 LAST_CLEANUP = time.time()
 
-# Get PIN from environment variable (safer)
-ADMIN_DELETE_PIN = os.getenv("ADMIN_DELETE_PIN", "1234") 
+ADMIN_DELETE_PIN = os.getenv("ADMIN_DELETE_PIN", "1234")
 
 # ---------------- UTILS ----------------
 
 def cleanup_counts():
-    """Removes old keys to prevent memory leaks."""
     global LAST_CLEANUP
     now = time.time()
-    # Cleanup every 5 minutes
-    if now - LAST_CLEANUP > 300:
+
+    if now - LAST_CLEANUP > 300:  # every 5 mins
         current_window = int(now) // 60
-        # Remove keys older than 2 minutes ago
-        keys_to_delete = [k for k in REQUEST_COUNTS.keys() if int(k.split(":")[1]) < current_window - 2]
-        for k in keys_to_delete:
-            del REQUEST_COUNTS[k]
+        REQUEST_COUNTS_KEYS = list(REQUEST_COUNTS.keys())
+        LONG_TERM_KEYS = list(LONG_TERM_COUNTS.keys())
+
+        for k in REQUEST_COUNTS_KEYS:
+            try:
+                window = int(k.split(":")[1])
+                if window < current_window - 2:
+                    del REQUEST_COUNTS[k]
+            except:
+                pass
+
+        for k in LONG_TERM_KEYS:
+            try:
+                window = int(k.split(":")[1])
+                if window < (int(now) // 600) - 2:
+                    del LONG_TERM_COUNTS[k]
+            except:
+                pass
+
         LAST_CLEANUP = now
 
-def log_event(ip: str, user_agent: str, fingerprint: str, status: str, threat_score: int):
-    """
-    Logs the request details to Supabase.
-    This runs in the background to avoid slowing down the response.
-    """
+def log_event(ip, user_agent, fingerprint, status, threat_score):
     data = {
         "ip": ip,
         "user_agent": user_agent,
@@ -43,7 +52,7 @@ def log_event(ip: str, user_agent: str, fingerprint: str, status: str, threat_sc
     try:
         supabase.table("request_logs").insert(data).execute()
     except Exception as e:
-        print(f"DB insert failed: {e}")
+        print("DB insert failed:", e)
 
 # ---------------- MIDDLEWARE ----------------
 
@@ -51,51 +60,61 @@ def log_event(ip: str, user_agent: str, fingerprint: str, status: str, threat_sc
 async def guard_middleware(request: Request, call_next):
     path = request.url.path
 
-    # Allow certain paths to bypass checks (health, docs, etc.)
     if path in ["/", "/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health", "/bot-attack"]:
         return await call_next(request)
 
-    # 1. CORRECT IP DETECTION (Fixes proxy issue on Render)
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        ip = forwarded.split(",")[0]
+        ip = forwarded.split(",")[0].strip()
     else:
         ip = request.client.host if request.client else "unknown"
 
     ua = request.headers.get("user-agent", "unknown")
     ua_lower = ua.lower()
 
-    # Create a fingerprint (IP + User Agent)
     fingerprint = hashlib.sha256(f"{ip}:{ua}".encode()).hexdigest()[:16]
 
-    # Time window logic (1 minute buckets)
     now = int(time.time())
-    window = now // 60
-    key = f"{fingerprint}:{window}"
-    
-    # 2. MEMORY MANAGEMENT
+    window_60 = now // 60
+    window_10m = now // 600
+
+    key_60 = f"{fingerprint}:{window_60}"
+    key_10m = f"{fingerprint}:{window_10m}"
+
     cleanup_counts()
 
-    REQUEST_COUNTS[key] = REQUEST_COUNTS.get(key, 0) + 1
-    count = REQUEST_COUNTS[key]
+    REQUEST_COUNTS[key_60] = REQUEST_COUNTS.get(key_60, 0) + 1
+    LONG_TERM_COUNTS[key_10m] = LONG_TERM_COUNTS.get(key_10m, 0) + 1
 
-    # Scoring Logic
-    threat_score = 10 + count * 5
+    count_60 = REQUEST_COUNTS[key_60]
+    count_10m = LONG_TERM_COUNTS[key_10m]
+
+    threat_score = 10 + count_60 * 5
     status = "allowed"
 
-    # Rule: Block known bot User-Agents
-    if "python" in ua_lower or "curl" in ua_lower or "bot" in ua_lower:
-        threat_score = 95
-        status = "blocked"
+    # Bot UA heuristic (weak signal)
+    if any(x in ua_lower for x in ["python", "curl", "bot", "httpclient"]):
+        threat_score += 30
 
-    # Rule: Protect sensitive endpoints
-    if path in ["/login", "/transfer"] and count > 10:
-        threat_score = max(threat_score, 85)
-        status = "blocked"
+    # Header anomaly detection
+    browser_headers = ["accept", "accept-language", "referer", "sec-ch-ua"]
+    missing = sum(1 for h in browser_headers if h not in request.headers)
+    if missing >= 3:
+        threat_score += 25
 
-    # Rule: Rate Limit (Global)
-    if count > 15:
-        threat_score = 90
+    # Sensitive endpoint abuse
+    if path in ["/login", "/transfer"] and count_60 > 5:
+        threat_score += 30
+
+    # Burst detection
+    if count_60 > 8:
+        threat_score += 30
+
+    # Low-and-slow detection (long window)
+    if count_10m > 40:
+        threat_score += 35
+
+    if threat_score >= 80:
         status = "blocked"
 
     log_event(ip, ua, fingerprint, status, threat_score)
@@ -110,9 +129,8 @@ async def guard_middleware(request: Request, call_next):
 @app.post("/log-test")
 async def log_test(request: Request, background_tasks: BackgroundTasks):
     ip = request.client.host
-    user_agent = request.headers.get("user-agent")
-    # Correct way to use background tasks in endpoints
-    background_tasks.add_task(log_event, ip, user_agent, "test_fp", "allowed", 5)
+    ua = request.headers.get("user-agent")
+    background_tasks.add_task(log_event, ip, ua, "test_fp", "allowed", 5)
     return {"message": "Logged in background"}
 
 @app.post("/login")
@@ -125,16 +143,11 @@ def transfer():
 
 @app.post("/bot-attack")
 async def bot_attack():
-    # Targets the self-same server (Dynamic URL detection would be better)
     target_url = "https://guardrail-twi2.onrender.com/login"
-    
-    headers = {
-        "User-Agent": "python-requests/2.32.5" # Explicitly identify as a bot
-    }
+
+    headers = {"User-Agent": "python-requests/2.32.5"}
 
     results = []
-    
-    # 4. PREVENT DEADLOCK (Use Async Client)
     async with httpx.AsyncClient() as client:
         for _ in range(15):
             try:
@@ -152,12 +165,8 @@ def delete_logs(x_admin_pin: str = Header(None)):
     if x_admin_pin != ADMIN_DELETE_PIN:
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
-    try:
-        res = supabase.table("request_logs").delete().neq("id", 0).execute()
-        count = len(res.data) if res.data else 0
-        return {"message": "All logs deleted", "deleted_count": count}
-    except Exception as e:
-        return {"error": str(e)}
+    res = supabase.table("request_logs").delete().neq("id", 0).execute()
+    return {"message": "All logs deleted", "deleted_count": len(res.data) if res.data else 0}
 
 # ---------------- GET ROUTES ----------------
 
@@ -176,7 +185,6 @@ def get_logs(limit: int = 20):
 
 @app.get("/logs/count")
 def get_log_count():
-    # Note: 'exact' count can be slow on large tables
     res = supabase.table("request_logs").select("id", count="exact").execute()
     return {"total": res.count}
 
