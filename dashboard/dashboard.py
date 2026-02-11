@@ -10,7 +10,7 @@ BLOCKED_COUNT_URL = "https://guardrail-twi2.onrender.com/logs/blocked/count"
 DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
 
 # Refresh every 5 seconds to prevent UI glitches while typing
-REFRESH_SECONDS = 5 
+REFRESH_SECONDS = 2 
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
