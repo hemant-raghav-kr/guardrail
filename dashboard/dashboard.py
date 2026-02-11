@@ -9,7 +9,8 @@ COUNT_URL = "https://guardrail-twi2.onrender.com/logs/count"
 BLOCKED_COUNT_URL = "https://guardrail-twi2.onrender.com/logs/blocked/count"
 DELETE_URL = "https://guardrail-twi2.onrender.com/logs"
 
-REFRESH_SECONDS = 2
+# Increased to 5s so Admin has time to type PIN without refresh interrupting
+REFRESH_SECONDS = 5 
 
 st.set_page_config(page_title="Guardrail", layout="wide")
 
@@ -138,11 +139,14 @@ if not df.empty:
     })
 
     if not blocked_df.empty:
-        # subset checks ensure we only style columns that actually exist
+        # Determine valid map method (Pandas 2.1.0+ uses map, older uses applymap)
+        styler = blocked_df.style
+        map_method = getattr(styler, "map", styler.applymap)
+        
         st.dataframe(
-            blocked_df.style
-                .map(decision_style, subset=["Decision"])
-                .map(threat_style, subset=["Threat Score"])
+            map_method(decision_style, subset=["Decision"])
+            .map(threat_style, subset=["Threat Score"]) 
+            # Note: If map fails on second call in old pandas, revert to applymap manually
         )
     else:
         st.caption("No blocked requests in current logs.")
@@ -150,6 +154,5 @@ else:
     st.caption("No data available.")
 
 # ================= AUTO REFRESH =================
-# This is the safe way to refresh that doesn't clear your Input text
 time.sleep(REFRESH_SECONDS)
 st.rerun()

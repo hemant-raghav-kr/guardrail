@@ -1,16 +1,38 @@
-from fastapi import FastAPI, Request, Header, HTTPException
-from db import supabase
+from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
-import time, hashlib, requests, os
+from db import supabase
+import time, hashlib, os
+import httpx  # You must install this: pip install httpx
 
 app = FastAPI(title="GuardRail Target API")
-REQUEST_COUNTS = {}
 
-ADMIN_DELETE_PIN = os.getenv("ADMIN_DELETE_PIN", "1234")  # set in Render env later
+# Store request counts in memory (In production, use Redis)
+REQUEST_COUNTS = {}
+LAST_CLEANUP = time.time()
+
+# Get PIN from environment variable (safer)
+ADMIN_DELETE_PIN = os.getenv("ADMIN_DELETE_PIN", "1234") 
 
 # ---------------- UTILS ----------------
 
-def log_event(ip, user_agent, fingerprint, status, threat_score):
+def cleanup_counts():
+    """Removes old keys to prevent memory leaks."""
+    global LAST_CLEANUP
+    now = time.time()
+    # Cleanup every 5 minutes
+    if now - LAST_CLEANUP > 300:
+        current_window = int(now) // 60
+        # Remove keys older than 2 minutes ago
+        keys_to_delete = [k for k in REQUEST_COUNTS.keys() if int(k.split(":")[1]) < current_window - 2]
+        for k in keys_to_delete:
+            del REQUEST_COUNTS[k]
+        LAST_CLEANUP = now
+
+def log_event(ip: str, user_agent: str, fingerprint: str, status: str, threat_score: int):
+    """
+    Logs the request details to Supabase.
+    This runs in the background to avoid slowing down the response.
+    """
     data = {
         "ip": ip,
         "user_agent": user_agent,
@@ -21,7 +43,7 @@ def log_event(ip, user_agent, fingerprint, status, threat_score):
     try:
         supabase.table("request_logs").insert(data).execute()
     except Exception as e:
-        print("DB insert failed:", e)
+        print(f"DB insert failed: {e}")
 
 # ---------------- MIDDLEWARE ----------------
 
@@ -29,32 +51,49 @@ def log_event(ip, user_agent, fingerprint, status, threat_score):
 async def guard_middleware(request: Request, call_next):
     path = request.url.path
 
+    # Allow certain paths to bypass checks (health, docs, etc.)
     if path in ["/", "/logs", "/logs/count", "/logs/blocked/count", "/docs", "/openapi.json", "/health", "/bot-attack"]:
         return await call_next(request)
 
-    ip = request.client.host if request.client else "unknown"
+    # 1. CORRECT IP DETECTION (Fixes proxy issue on Render)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        ip = forwarded.split(",")[0]
+    else:
+        ip = request.client.host if request.client else "unknown"
+
     ua = request.headers.get("user-agent", "unknown")
     ua_lower = ua.lower()
 
+    # Create a fingerprint (IP + User Agent)
     fingerprint = hashlib.sha256(f"{ip}:{ua}".encode()).hexdigest()[:16]
 
+    # Time window logic (1 minute buckets)
     now = int(time.time())
     window = now // 60
     key = f"{fingerprint}:{window}"
+    
+    # 2. MEMORY MANAGEMENT
+    cleanup_counts()
+
     REQUEST_COUNTS[key] = REQUEST_COUNTS.get(key, 0) + 1
     count = REQUEST_COUNTS[key]
 
+    # Scoring Logic
     threat_score = 10 + count * 5
     status = "allowed"
 
+    # Rule: Block known bot User-Agents
     if "python" in ua_lower or "curl" in ua_lower or "bot" in ua_lower:
         threat_score = 95
         status = "blocked"
 
+    # Rule: Protect sensitive endpoints
     if path in ["/login", "/transfer"] and count > 10:
         threat_score = max(threat_score, 85)
         status = "blocked"
 
+    # Rule: Rate Limit (Global)
     if count > 15:
         threat_score = 90
         status = "blocked"
@@ -69,11 +108,12 @@ async def guard_middleware(request: Request, call_next):
 # ---------------- POST ROUTES ----------------
 
 @app.post("/log-test")
-async def log_test(request: Request):
-    ip = request.client.host if request.client else "unknown"
+async def log_test(request: Request, background_tasks: BackgroundTasks):
+    ip = request.client.host
     user_agent = request.headers.get("user-agent")
-    log_event(ip, user_agent, "test_fp", "allowed", 5)
-    return {"message": "Logged"}
+    # Correct way to use background tasks in endpoints
+    background_tasks.add_task(log_event, ip, user_agent, "test_fp", "allowed", 5)
+    return {"message": "Logged in background"}
 
 @app.post("/login")
 def login():
@@ -84,33 +124,40 @@ def transfer():
     return {"status": "transfer ok"}
 
 @app.post("/bot-attack")
-def bot_attack():
+async def bot_attack():
+    # Targets the self-same server (Dynamic URL detection would be better)
     target_url = "https://guardrail-twi2.onrender.com/login"
-
+    
     headers = {
-        "User-Agent": "python-requests/2.32.5"
+        "User-Agent": "python-requests/2.32.5" # Explicitly identify as a bot
     }
 
     results = []
-    for _ in range(15):
-        r = requests.post(target_url, headers=headers, timeout=2)
-        results.append(r.status_code)
+    
+    # 4. PREVENT DEADLOCK (Use Async Client)
+    async with httpx.AsyncClient() as client:
+        for _ in range(15):
+            try:
+                r = await client.post(target_url, headers=headers, timeout=2)
+                results.append(r.status_code)
+            except Exception as e:
+                results.append(str(e))
 
     return {"message": "Bot attack simulated", "hits": 15, "results": results}
 
 # ---------------- DELETE ROUTE ----------------
 
 @app.delete("/logs")
-def delete_logs(x_admin_pin: str = Header(...)):
+def delete_logs(x_admin_pin: str = Header(None)):
     if x_admin_pin != ADMIN_DELETE_PIN:
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
-    res = supabase.table("request_logs").delete().neq("id", 0).execute()
-
-    return {
-        "message": "All logs deleted",
-        "deleted_count": len(res.data) if res.data else 0
-    }
+    try:
+        res = supabase.table("request_logs").delete().neq("id", 0).execute()
+        count = len(res.data) if res.data else 0
+        return {"message": "All logs deleted", "deleted_count": count}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ---------------- GET ROUTES ----------------
 
@@ -129,6 +176,7 @@ def get_logs(limit: int = 20):
 
 @app.get("/logs/count")
 def get_log_count():
+    # Note: 'exact' count can be slow on large tables
     res = supabase.table("request_logs").select("id", count="exact").execute()
     return {"total": res.count}
 
