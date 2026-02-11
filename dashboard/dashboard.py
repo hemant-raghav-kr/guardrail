@@ -22,7 +22,7 @@ st.divider()
 
 # ================= SIDEBAR =================
 st.sidebar.title("⚙️ Dashboard Info")
-st.sidebar.markdown("**Environment:** Hackathon Simulation")
+st.sidebar.markdown("**Environment:** Built for CODE CRAFT CHASE 2.0")
 st.sidebar.markdown("**Detection Type:** Behavioral Fingerprinting")
 st.sidebar.markdown("**Protection:** Active")
 st.sidebar.markdown("**Mode:** API")
