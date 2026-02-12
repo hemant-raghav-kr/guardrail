@@ -41,7 +41,7 @@ const DashboardContent = () => {
   useEffect(() => {
     if (isAdminTyping) return;
 
-    const interval = setInterval(() => tick(), 3000);
+    const interval = setInterval(() => tick(), 2000);
     return () => clearInterval(interval);
   }, [tick, isAdminTyping]);
 
