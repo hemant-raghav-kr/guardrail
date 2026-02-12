@@ -22,6 +22,7 @@ app.add_middleware(
 REQUEST_COUNTS = {}
 LONG_TERM_COUNTS = {}
 LAST_CLEANUP = time.time()
+PERMANENT_BANS = set()
 
 ADMIN_DELETE_PIN = (os.getenv("ADMIN_DELETE_PIN") or "1234").strip()
 
@@ -79,8 +80,15 @@ async def guard_middleware(request: Request, call_next):
     forwarded = request.headers.get("x-forwarded-for")
     ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
 
-    ua = request.headers.get("user-agent", "unknown").lower()
-    fingerprint = hashlib.sha256(f"{ip}:{ua}".encode()).hexdigest()[:16]
+    ua_raw = request.headers.get("user-agent", "unknown")
+    ua = ua_raw.lower()
+
+    fingerprint = hashlib.sha256(f"{ip}:{ua_raw}".encode()).hexdigest()[:16]
+
+    # 🚫 PERMANENT BAN CHECK
+    if fingerprint in PERMANENT_BANS:
+        log_event(ip, ua_raw, fingerprint, "blocked", 100)
+        return JSONResponse(status_code=403, content={"detail": "Client permanently banned"})
 
     now = int(time.time())
     key_60 = f"{fingerprint}:{now // 60}"
@@ -96,25 +104,34 @@ async def guard_middleware(request: Request, call_next):
 
     threat_score = 10 + count_60 * 5
 
+    # 🚨 HARD BLOCK: Bot User-Agent (first request itself)
     if any(x in ua for x in ["python", "curl", "bot", "httpclient"]):
-        threat_score += 30
+        log_event(ip, ua_raw, fingerprint, "blocked", 95)
+        return JSONResponse(status_code=403, content={"detail": "Bot User-Agent blocked"})
 
+    # 🚨 HARD BLOCK: Non-browser headers (first request itself)
     missing_headers = sum(1 for h in ["accept", "accept-language", "referer", "sec-ch-ua"] if h not in request.headers)
     if missing_headers >= 3:
-        threat_score += 25
+        log_event(ip, ua_raw, fingerprint, "blocked", 90)
+        return JSONResponse(status_code=403, content={"detail": "Non-browser client blocked"})
 
+    # Sensitive endpoint abuse
     if path in ["/login", "/transfer"] and count_60 > 5:
         threat_score += 30
 
+    # Burst detection
     if count_60 > 8:
         threat_score += 30
 
+    # 🧨 Low-and-slow detection → PERMANENT BAN after 5 minutes
     if count_10m > 40:
-        threat_score += 35
+        PERMANENT_BANS.add(fingerprint)
+        log_event(ip, ua_raw, fingerprint, "blocked", 100)
+        return JSONResponse(status_code=403, content={"detail": "Fingerprint permanently banned"})
 
     status = "blocked" if threat_score >= 80 else "allowed"
 
-    log_event(ip, ua, fingerprint, status, threat_score)
+    log_event(ip, ua_raw, fingerprint, status, threat_score)
 
     if status == "blocked":
         return JSONResponse(status_code=403, content={"detail": "Blocked by GuardRail"})
@@ -162,23 +179,16 @@ async def bot_attack():
 # ---------------- DELETE ROUTE ----------------
 
 @app.delete("/logs")
-def delete_logs(request: Request, x_admin_pin: str = Header(None)):
-    print("DELETE /logs called")
-    print("Received PIN:", x_admin_pin)
-    print("Expected PIN:", ADMIN_DELETE_PIN)
-
+def delete_logs(x_admin_pin: str = Header(None)):
     if not x_admin_pin:
         raise HTTPException(status_code=400, detail="x-admin-pin header missing")
 
-    if x_admin_pin.strip() != ADMIN_DELETE_PIN.strip():
+    if x_admin_pin.strip() != ADMIN_DELETE_PIN:
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
     res = supabase.table("request_logs").delete().neq("id", 0).execute()
+    return {"message": "All logs deleted", "deleted_count": len(res.data) if res.data else 0}
 
-    return {
-        "message": "All logs deleted",
-        "deleted_count": len(res.data) if res.data else 0
-    }
 
 # ---------------- GET ROUTES ----------------
 
