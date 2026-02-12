@@ -25,7 +25,6 @@ export interface LiveEvent {
 interface SentinelState {
   environment: string;
   detectionType: string;
-  adminPin: string;
 
   totalRequests: number;
   totalBlocked: number;
@@ -42,8 +41,8 @@ interface SentinelState {
   blockedClients: BlockedClient[];
   liveEvents: LiveEvent[];
 
-  isAdminTyping: boolean;                    // ✅ NEW
-  setAdminTyping: (v: boolean) => void;      // ✅ NEW
+  isAdminTyping: boolean;
+  setAdminTyping: (v: boolean) => void;
 
   tick: () => void;
   addEvent: (desc: string, sev: "info" | "warn" | "critical") => void;
@@ -56,7 +55,6 @@ interface SentinelState {
 export const useSentinelStore = create<SentinelState>((set, get) => ({
   environment: "CRAFT CHASE 2.0",
   detectionType: "Behavioral Fingerprinting",
-  adminPin: "1234",
 
   totalRequests: 0,
   totalBlocked: 0,
@@ -91,29 +89,30 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
   clearLogs: () => set({ blockedClients: [], liveEvents: [] }),
 
   executePurge: async (inputPin) => {
-    if (inputPin !== get().adminPin) {
-      set({ error: "Invalid PIN" });
-      return false;
-    }
     try {
       set({ loading: true, error: null });
+
       const success = await api.deleteLogs(inputPin);
-      if (success) {
-        get().addEvent("SYSTEM PURGE: Logs Cleared", "critical");
-        set({
-          totalBlocked: 0,
-          blockedClients: [],
-          threatScore: 0,
-          loading: false,
-          error: null,
-        });
-        return true;
+
+      if (!success) {
+        set({ error: "Invalid PIN or delete failed", loading: false });
+        return false;
       }
-      set({ error: "Failed to delete logs", loading: false });
-      return false;
+
+      get().addEvent("SYSTEM PURGE: Logs Cleared", "critical");
+
+      set({
+        totalBlocked: 0,
+        blockedClients: [],
+        threatScore: 0,
+        loading: false,
+        error: null,
+      });
+
+      return true;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Purge failed";
-      set({ error: msg, loading: false });
+      console.error("Purge failed:", e);
+      set({ error: "Delete failed", loading: false });
       return false;
     }
   },
@@ -123,15 +122,17 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
       set({ loading: true, error: null });
       const success = await api.triggerBotAttack();
       set({ loading: false });
+
       if (success) {
         get().addEvent("BOT ATTACK SIMULATION TRIGGERED", "warn");
         return true;
       }
+
       set({ error: "Failed to trigger bot attack" });
       return false;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Bot attack trigger failed";
-      set({ error: msg, loading: false });
+      console.error("Bot attack failed:", e);
+      set({ error: "Bot attack failed", loading: false });
       return false;
     }
   },
@@ -149,7 +150,9 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
       endpoint: "/admin",
       rpsAtTime: get().currentRps,
     };
+
     get().addEvent(`MANUAL BLOCK: ${ip}`, "warn");
+
     set((state) => ({
       blockedClients: [newClient, ...state.blockedClients].slice(0, 50),
       totalBlocked: state.totalBlocked + 1,
@@ -158,7 +161,7 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
 
   tick: async () => {
     const state = get();
-    if (state.isAdminTyping) return; // ⛔ Pause refresh while typing PIN
+    if (state.isAdminTyping) return;
 
     try {
       set({ loading: true, error: null });
@@ -193,8 +196,8 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
         error: null,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Data fetch failed";
-      set({ error: msg, loading: false });
+      console.error("Tick failed:", err);
+      set({ error: "Data fetch failed", loading: false });
     }
   },
 }));

@@ -1,4 +1,4 @@
-// API client for communicating with FastAPI backend
+// src/lib/api.ts
 const API_BASE_URL = "https://guardrail-twi2.onrender.com";
 
 export interface Log {
@@ -7,42 +7,29 @@ export interface Log {
   ip: string;
   user_agent?: string;
   fingerprint?: string;
-  status?: string;       // "blocked" | "allowed"
+  status?: string;
   threat_score?: number;
 }
-
-export interface LogCountResponse {
-  total: number;
-}
-
-export interface BlockedCountResponse {
-  blocked_total: number;
-}
-
-// ---------------- FETCH LOGS ----------------
 
 export async function getLogs(): Promise<Log[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/logs`);
     if (!res.ok) throw new Error("Failed to fetch logs");
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    return await res.json();
   } catch (e) {
-    console.error("Error fetching logs:", e);
+    console.error("getLogs error:", e);
     return [];
   }
 }
 
-// ---------------- FETCH COUNTS ----------------
-
 export async function getTotalRequestsCount(): Promise<number> {
   try {
     const res = await fetch(`${API_BASE_URL}/logs/count`);
-    if (!res.ok) throw new Error("Failed to fetch total count");
-    const data: LogCountResponse = await res.json();
+    if (!res.ok) throw new Error("Failed to fetch count");
+    const data = await res.json();
     return data.total ?? 0;
   } catch (e) {
-    console.error("Error fetching logs count:", e);
+    console.error("getTotalRequestsCount error:", e);
     return 0;
   }
 }
@@ -51,52 +38,51 @@ export async function getBlockedRequestsCount(): Promise<number> {
   try {
     const res = await fetch(`${API_BASE_URL}/logs/blocked/count`);
     if (!res.ok) throw new Error("Failed to fetch blocked count");
-    const data: BlockedCountResponse = await res.json();
+    const data = await res.json();
     return data.blocked_total ?? 0;
   } catch (e) {
-    console.error("Error fetching blocked count:", e);
+    console.error("getBlockedRequestsCount error:", e);
     return 0;
   }
 }
-
-// ---------------- BOT ATTACK ----------------
 
 export async function triggerBotAttack(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/bot-attack`, { method: "POST" });
     return res.ok;
   } catch (e) {
-    console.error("Error triggering bot attack:", e);
+    console.error("triggerBotAttack error:", e);
     return false;
   }
 }
-
-// ---------------- DELETE LOGS ----------------
 
 export async function deleteLogs(adminPin: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/logs`, {
       method: "DELETE",
       headers: {
-        "x-admin-pin": adminPin
-      }
+        "x-admin-pin": adminPin,
+      },
     });
-    return res.ok;
+
+    if (!res.ok) {
+      const txt = await res.text();
+      console.error("Delete failed:", txt);
+      return false;
+    }
+
+    return true;
   } catch (e) {
-    console.error("Error deleting logs:", e);
+    console.error("deleteLogs error:", e);
     return false;
   }
 }
 
-// ---------------- MAPPERS ----------------
-
 export function logsToBlockedClients(logs: Log[]) {
-  if (!Array.isArray(logs)) return [];
-
   return logs
     .filter((log) => log.status === "blocked")
-    .map((log, index) => ({
-      id: log.id?.toString() || `blocked-${index}`,
+    .map((log, i) => ({
+      id: log.id?.toString() || `blocked-${i}`,
       timestamp: log.timestamp || new Date().toISOString(),
       clientIp: log.ip,
       userAgent: log.user_agent || "Unknown",
@@ -110,19 +96,24 @@ export function logsToBlockedClients(logs: Log[]) {
 }
 
 export function logsToLiveEvents(logs: Log[]) {
-  if (!Array.isArray(logs)) return [];
-
-  return logs.map((log, index) => {
+  return logs.map((log, i) => {
     const isBlocked = log.status === "blocked";
-
     return {
-      id: log.id?.toString() || `event-${index}`,
+      id: log.id?.toString() || `event-${i}`,
       timestamp: log.timestamp || new Date().toISOString(),
       description: isBlocked
         ? `Request from ${log.ip} BLOCKED`
         : `Request from ${log.ip} allowed`,
-      severity: (isBlocked ? "critical" : "info") as "info" | "warn" | "critical",
-      type: (isBlocked ? "block" : "burst") as "burst" | "threshold" | "block" | "admin" | "rule",
+      severity: (isBlocked ? "critical" : "info") as
+        | "info"
+        | "warn"
+        | "critical",
+      type: (isBlocked ? "block" : "burst") as
+        | "burst"
+        | "threshold"
+        | "block"
+        | "admin"
+        | "rule",
     };
   });
 }
