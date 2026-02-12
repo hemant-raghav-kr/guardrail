@@ -6,6 +6,16 @@ import httpx
 
 app = FastAPI(title="GuardRail Target API")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For hackathon/demo (restrict later)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 REQUEST_COUNTS = {}
 LONG_TERM_COUNTS = {}
 LAST_CLEANUP = time.time()

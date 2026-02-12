@@ -2,7 +2,7 @@ import React from "react";
 import { useSentinelStore } from "../stores/useSentinelStore";
 
 const GlobalMetrics = () => {
-  const { threatScore, environment, detectionType, totalRequests, totalBlocked, activeConnections, currentRps, peakRps, loading, error } = useSentinelStore();
+  const { threatScore, environment, detectionType, totalRequests, totalBlocked, activeConnections, currentRps, peakRps } = useSentinelStore();
 
   return (
     <div className="flex items-center justify-between px-6 py-4 w-full font-mono bg-black/40 backdrop-blur-md border-b border-white/10">
@@ -22,19 +22,19 @@ const GlobalMetrics = () => {
       <div className="flex flex-1 justify-around px-4">
         <div className="text-center">
           <p className="text-[10px] text-white/30 uppercase">Total Req</p>
-          <p className="text-xs font-bold">{loading ? "----" : totalRequests}</p>
+          <p className="text-xs font-bold">{totalRequests}</p>
         </div>
         <div className="text-center">
           <p className="text-[10px] text-white/30 uppercase">Blocked</p>
-          <p className="text-xs font-bold text-red-500">{loading ? "----" : totalBlocked}</p>
+          <p className="text-xs font-bold text-red-500">{totalBlocked}</p>
         </div>
         <div className="text-center">
           <p className="text-[10px] text-white/30 uppercase">Active</p>
-          <p className="text-xs font-bold">{loading ? "----" : activeConnections}</p>
+          <p className="text-xs font-bold">{activeConnections}</p>
         </div>
         <div className="text-center">
           <p className="text-[10px] text-white/30 uppercase">RPS</p>
-          <p className="text-xs font-bold text-cyan-400">{loading ? "----" : currentRps}</p>
+          <p className="text-xs font-bold text-cyan-400">{currentRps}</p>
         </div>
       </div>
 
@@ -48,11 +48,6 @@ const GlobalMetrics = () => {
         </div>
         <div className={`w-2 h-2 rounded-full animate-pulse ${threatScore > 50 ? 'bg-red-500 shadow-[0_0_8px_red]' : 'bg-emerald-500 shadow-[0_0_8px_emerald]'}`} />
       </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-red-500/50 animate-pulse" />
-      )}
     </div>
   );
 };
