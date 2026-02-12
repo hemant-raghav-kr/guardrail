@@ -23,12 +23,10 @@ export interface LiveEvent {
 }
 
 interface SentinelState {
-  // --- ADDED METADATA FROM STREAMLIT ---
   environment: string;
   detectionType: string;
   adminPin: string;
 
-  // Stats & Metrics
   totalRequests: number;
   totalBlocked: number;
   uniqueClients: number;
@@ -37,26 +35,25 @@ interface SentinelState {
   peakRps: number;
   rpsHistory: number[];
   threatScore: number;
-  
-  // Loading & Error States
+
   loading: boolean;
   error: string | null;
 
-  // Data Feeds
   blockedClients: BlockedClient[];
   liveEvents: LiveEvent[];
 
-  // Actions
+  isAdminTyping: boolean;                    // ✅ NEW
+  setAdminTyping: (v: boolean) => void;      // ✅ NEW
+
   tick: () => void;
   addEvent: (desc: string, sev: "info" | "warn" | "critical") => void;
-  executePurge: (inputPin: string) => Promise<boolean>; // Modified to accept PIN
+  executePurge: (inputPin: string) => Promise<boolean>;
   triggerBotAttack: () => Promise<boolean>;
   manualBlock: (ip: string) => Promise<void>;
   clearLogs: () => void;
 }
 
 export const useSentinelStore = create<SentinelState>((set, get) => ({
-  // --- INITIAL METADATA VALUES ---
   environment: "CRAFT CHASE 2.0",
   detectionType: "Behavioral Fingerprinting",
   adminPin: "1234",
@@ -69,10 +66,14 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
   peakRps: 0,
   threatScore: 0,
   rpsHistory: new Array(60).fill(0),
+
   loading: false,
   error: null,
   blockedClients: [],
   liveEvents: [],
+
+  isAdminTyping: false,
+  setAdminTyping: (v) => set({ isAdminTyping: v }),
 
   addEvent: (description, severity) => {
     const newEvent: LiveEvent = {
@@ -82,12 +83,14 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
       severity,
       type: "block",
     };
-    set((state) => ({ liveEvents: [newEvent, ...state.liveEvents].slice(0, 15) }));
+    set((state) => ({
+      liveEvents: [newEvent, ...state.liveEvents].slice(0, 15),
+    }));
   },
 
   clearLogs: () => set({ blockedClients: [], liveEvents: [] }),
 
-  executePurge: async (inputPin: string) => {
+  executePurge: async (inputPin) => {
     if (inputPin !== get().adminPin) {
       set({ error: "Invalid PIN" });
       return false;
@@ -109,9 +112,8 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
       set({ error: "Failed to delete logs", loading: false });
       return false;
     } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : "Purge failed";
-      console.error("Purge failed", e);
-      set({ error: errorMsg, loading: false });
+      const msg = e instanceof Error ? e.message : "Purge failed";
+      set({ error: msg, loading: false });
       return false;
     }
   },
@@ -124,45 +126,40 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
       if (success) {
         get().addEvent("BOT ATTACK SIMULATION TRIGGERED", "warn");
         return true;
-      } else {
-        set({ error: "Failed to trigger bot attack" });
-        return false;
       }
+      set({ error: "Failed to trigger bot attack" });
+      return false;
     } catch (e) {
-      const errorMsg =
-        e instanceof Error ? e.message : "Bot attack trigger failed";
-      console.error("Bot attack trigger failed", e);
-      set({ error: errorMsg, loading: false });
+      const msg = e instanceof Error ? e.message : "Bot attack trigger failed";
+      set({ error: msg, loading: false });
       return false;
     }
   },
 
   manualBlock: async (ip) => {
-    try {
-      const newClient: BlockedClient = {
-        id: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        clientIp: ip,
-        userAgent: "Manual Block",
-        fingerprint: "ADMIN",
-        decision: "BLOCKED",
-        threatScore: 100,
-        reason: "Manual Action",
-        endpoint: "/admin",
-        rpsAtTime: get().currentRps,
-      };
-      get().addEvent(`MANUAL BLOCK: ${ip} restricted`, "warn");
-      set((state) => ({
-        blockedClients: [newClient, ...state.blockedClients].slice(0, 50),
-        totalBlocked: state.totalBlocked + 1,
-      }));
-    } catch (e) {
-      console.error("Block failed", e);
-    }
+    const newClient: BlockedClient = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      clientIp: ip,
+      userAgent: "Manual Block",
+      fingerprint: "ADMIN",
+      decision: "BLOCKED",
+      threatScore: 100,
+      reason: "Manual Action",
+      endpoint: "/admin",
+      rpsAtTime: get().currentRps,
+    };
+    get().addEvent(`MANUAL BLOCK: ${ip}`, "warn");
+    set((state) => ({
+      blockedClients: [newClient, ...state.blockedClients].slice(0, 50),
+      totalBlocked: state.totalBlocked + 1,
+    }));
   },
 
   tick: async () => {
     const state = get();
+    if (state.isAdminTyping) return; // ⛔ Pause refresh while typing PIN
+
     try {
       set({ loading: true, error: null });
 
@@ -176,10 +173,7 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
       const liveEvents = api.logsToLiveEvents(logs);
 
       const recentLogs = logs.slice(0, 60);
-      const currentRps =
-        recentLogs.length > 0
-          ? Math.floor(recentLogs.length / (60 / 60))
-          : 0;
+      const currentRps = recentLogs.length;
 
       const threatScore =
         totalCount > 0
@@ -199,17 +193,8 @@ export const useSentinelStore = create<SentinelState>((set, get) => ({
         error: null,
       });
     } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : "Data fetch failed";
-      console.error("Tick failed:", err);
-
-      const fakeRps = Math.floor(Math.random() * 10) + 5;
-      set({
-        currentRps: fakeRps,
-        rpsHistory: [...state.rpsHistory.slice(1), fakeRps],
-        loading: false,
-        error: errorMsg,
-      });
+      const msg = err instanceof Error ? err.message : "Data fetch failed";
+      set({ error: msg, loading: false });
     }
   },
 }));
