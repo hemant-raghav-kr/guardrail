@@ -53,7 +53,7 @@ interface SentinelState {
 }
 
 export const useSentinelStore = create<SentinelState>((set, get) => ({
-  environment: "CRAFT CHASE 2.0",
+  environment: "CODE CRAFT CHASE 2.0",
   detectionType: "Behavioral Fingerprinting",
 
   totalRequests: 0,
