@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+  }
+}
+
+/* --- RESTORED TYPOGRAPHY --- */
+
+.metric-value {
+  @apply text-xl font-bold tracking-tight text-white;
+}
+
+.metric-label {
+  @apply text-[9px] uppercase font-bold tracking-widest text-white/40 mb-1;
+}
+
+/* --- ANIMATIONS --- */
+
+@keyframes scanline {
+  0% { transform: translateY(-100vh); }
+  100% { transform: translateY(100vh); }
+}
+
+.animate-scanline {
+  animation: scanline 10s linear infinite;
+}
+
+/* Custom UI Polish */
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
