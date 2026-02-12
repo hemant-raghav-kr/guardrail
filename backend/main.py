@@ -11,10 +11,10 @@ app = FastAPI(title="GuardRail Target API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict later in prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Content-Type", "x-admin-pin"],  # 👈 Explicit header allow
+    allow_headers=["*"],
 )
 
 # ---------------- GLOBAL STATE ----------------
@@ -159,16 +159,18 @@ async def bot_attack():
     return {"message": "Bot attack simulated", "hits": 15, "results": results}
 
 
-# ---------------- DELETE ROUTE (PERMANENT FIX) ----------------
+# ---------------- DELETE ROUTE ----------------
 
 @app.delete("/logs")
-def delete_logs(request: Request):
-    header_pin = request.headers.get("x-admin-pin")
+def delete_logs(request: Request, x_admin_pin: str = Header(None)):
+    print("DELETE /logs called")
+    print("Received PIN:", x_admin_pin)
+    print("Expected PIN:", ADMIN_DELETE_PIN)
 
-    if not header_pin:
-        raise HTTPException(status_code=401, detail="Missing admin PIN")
+    if not x_admin_pin:
+        raise HTTPException(status_code=400, detail="x-admin-pin header missing")
 
-    if header_pin.strip() != ADMIN_DELETE_PIN:
+    if x_admin_pin.strip() != ADMIN_DELETE_PIN.strip():
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
     res = supabase.table("request_logs").delete().neq("id", 0).execute()
@@ -177,7 +179,6 @@ def delete_logs(request: Request):
         "message": "All logs deleted",
         "deleted_count": len(res.data) if res.data else 0
     }
-
 
 # ---------------- GET ROUTES ----------------
 
